@@ -12,6 +12,7 @@ import {
   DragOverEvent,
   DragStartEvent,
   DragOverlay,
+  useDroppable,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -144,6 +145,24 @@ function KanbanCard({
         >
           Edit
         </button>
+        <select
+          value={card.status}
+          onChange={(e) => {
+            e.stopPropagation();
+            onUpdate(card.id, { status: e.target.value as PipelineStatus });
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="text-xs bg-canvas border rounded px-1.5 py-0.5 text-ink-muted hover:text-ink focus:outline-none cursor-pointer max-w-[80px]"
+          style={{ borderColor: 'var(--mist-strong)' }}
+          aria-label="Move card stage"
+        >
+          {COLUMNS.map((col) => (
+            <option key={col.status} value={col.status}>
+              {col.label}
+            </option>
+          ))}
+        </select>
         <button
           id={`copy-card-${card.id}`}
           onClick={(e) => { e.stopPropagation(); handleCopy(); }}
@@ -165,6 +184,36 @@ function KanbanCard({
           ✕
         </button>
       </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────
+// Droppable Column Wrapper
+// ──────────────────────────────────────────────────────────
+function DroppableColumn({
+  col,
+  children,
+}: {
+  col: { status: PipelineStatus; label: string; color: string };
+  children: React.ReactNode;
+}) {
+  const { setNodeRef } = useDroppable({ id: col.status });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className="flex flex-col gap-2 rounded-xl p-3"
+      style={{
+        width: '260px',
+        minHeight: '200px',
+        background: col.color,
+        border: '1px solid var(--mist)',
+        flexShrink: 0,
+      }}
+      id={`col-${col.status}`}
+    >
+      {children}
     </div>
   );
 }
@@ -204,12 +253,27 @@ export default function PipelinePage() {
   }
 
   async function handleUpdate(id: string, updates: Partial<PipelineCard>) {
-    await fetch(`/api/pipeline/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    loadCards();
+    const originalCards = [...cards];
+    
+    // Apply optimistic updates locally
+    setCards((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
+    );
+
+    try {
+      const res = await fetch(`/api/pipeline/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) {
+        throw new Error('Update failed');
+      }
+    } catch (err) {
+      // Revert on failure
+      setCards(originalCards);
+      alert('Failed to update card. Reverting changes.');
+    }
   }
 
   async function handleDelete(id: string) {
@@ -258,6 +322,8 @@ export default function PipelinePage() {
       });
     }
 
+    const originalCards = [...cards];
+
     // Optimistic update
     setCards(updatedCards.map((c) => {
       const u = allUpdates.find((u) => u.id === c.id);
@@ -265,11 +331,19 @@ export default function PipelinePage() {
     }));
 
     // Persist
-    await fetch('/api/pipeline/reorder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ updates: allUpdates }),
-    });
+    try {
+      const res = await fetch('/api/pipeline/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: allUpdates }),
+      });
+      if (!res.ok) {
+        throw new Error('Reorder failed');
+      }
+    } catch (err) {
+      setCards(originalCards);
+      alert('Failed to save card positions. Reverting changes.');
+    }
   }
 
   async function handleDragOver(event: DragOverEvent) {
@@ -342,18 +416,7 @@ export default function PipelinePage() {
               {COLUMNS.map((col) => {
                 const colCards = getCardsForColumn(col.status);
                 return (
-                  <div
-                    key={col.status}
-                    className="flex flex-col gap-2 rounded-xl p-3"
-                    style={{
-                      width: '260px',
-                      minHeight: '200px',
-                      background: col.color,
-                      border: '1px solid var(--mist)',
-                      flexShrink: 0,
-                    }}
-                    id={`col-${col.status}`}
-                  >
+                  <DroppableColumn key={col.status} col={col}>
                     {/* Column header */}
                     <div className="flex items-center justify-between px-1">
                       <div className="flex items-center gap-2">
@@ -405,7 +468,7 @@ export default function PipelinePage() {
                         )}
                       </div>
                     </SortableContext>
-                  </div>
+                  </DroppableColumn>
                 );
               })}
             </div>

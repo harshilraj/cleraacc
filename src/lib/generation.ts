@@ -14,9 +14,9 @@ function scoreSource(query: string, source: Source): number {
     if (text.includes(word)) score += 2;
   }
 
-  // Recency bonus
+  // Mild recency bonus (max 1 point, decaying over 30 days) to avoid overriding keyword relevance
   const ageDays = (Date.now() - new Date(source.created_at).getTime()) / (1000 * 60 * 60 * 24);
-  score += Math.max(0, 10 - ageDays);
+  score += Math.max(0, 1 - ageDays / 30);
 
   return score;
 }
@@ -33,14 +33,23 @@ export async function retrieveSources(query: string, maxSources = 8): Promise<So
 
   if (!sources || sources.length === 0) return [];
 
-  const instructions = (sources as Source[]).filter((s: Source) => s.kind === 'instruction');
-  const rest = (sources as Source[]).filter((s: Source) => s.kind !== 'instruction');
+  // Style guidelines and writing rules should always be active
+  const alwaysLoad = (sources as Source[]).filter(
+    (s: Source) => s.kind === 'instruction' || s.kind === 'voice_sample'
+  );
+  
+  // Topic-dependent sources are scored and retrieved by keyword relevance
+  const rest = (sources as Source[]).filter(
+    (s: Source) => s.kind !== 'instruction' && s.kind !== 'voice_sample'
+  );
 
   const scored = rest.map((s: Source) => ({ source: s, score: scoreSource(query, s) }));
   scored.sort((a, b) => b.score - a.score);
 
-  const topRest = scored.slice(0, maxSources - instructions.length).map((s) => s.source);
-  return [...instructions, ...topRest];
+  const remainingSpace = Math.max(0, maxSources - alwaysLoad.length);
+  const topRest = scored.slice(0, remainingSpace).map((s) => s.source);
+  
+  return [...alwaysLoad, ...topRest];
 }
 
 // ──────────────────────────────────────────────────────────
