@@ -1,36 +1,129 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Content Studio
 
-## Getting Started
+A single-tenant web app for writing Instagram and LinkedIn posts with AI assistance. Powered by Claude (Anthropic), Supabase, and Next.js.
 
-First, run the development server:
+## Features
+
+- **AI Chat** — Ask for drafts grounded in your knowledge base, voice samples, and competitor/inspiration links
+- **Knowledge Base** — Competitor links, inspiration links, past writing samples, and hard writing rules
+- **Kanban Pipeline** — Drag-and-drop content board (Idea → Drafted → Review → Scheduled → Posted)
+- **Extraction** — Automatic link scraping via Jina Reader (free) with Apify fallback
+- **Login Gate** — Simple password-protected single-user access
+
+---
+
+## Setup
+
+### 1. Supabase — Run the migration
+
+1. Open your Supabase project: https://supabase.com/dashboard/project/sbcbeiyirpowdiqajqhd
+2. Go to **SQL Editor** → **New query**
+3. Paste the contents of `supabase/migrations/001_initial_schema.sql`
+4. Click **Run**
+
+This creates 5 tables (`sources`, `pipeline_cards`, `chat_messages`, `app_settings`, `generation_runs`) and seeds 3 default writing instructions.
+
+### 2. Get your Supabase service role key
+
+1. In Supabase: **Settings** → **API** → copy **service_role** key
+2. Add it to your environment variables as `SUPABASE_SERVICE_ROLE_KEY`
+
+> **Important**: The service role key bypasses Row Level Security and must NEVER be used as a `NEXT_PUBLIC_` variable.
+
+### 3. Generate a session secret
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+openssl rand -hex 32
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy the output and use it as `SESSION_SECRET`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 4. Environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Copy `.env.example` to `.env.local` and fill in:
 
-## Learn More
+```bash
+cp .env.example .env.local
+```
 
-To learn more about Next.js, take a look at the following resources:
+Required variables:
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
+| `SESSION_SECRET` | Random 32+ char string for cookie signing |
+| `APP_USERNAME` | Login username (default: `cleraacc`) |
+| `APP_PASSWORD` | Login password (default: `harshilcleraa`) |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+API keys for Anthropic and Apify are stored **in-app** via the Settings page — they are NOT env vars.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 5. Run locally
 
-## Deploy on Vercel
+```bash
+npm install
+npm run dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Open http://localhost:3000. Log in with `cleraacc` / `harshilcleraa` (or your custom env vars).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 6. Add your Anthropic API key
+
+Go to **Settings** in the app and paste your Anthropic API key. Without this, generation will not work.
+
+---
+
+## Deploying to Vercel
+
+1. Push this repo to GitHub
+2. Import into Vercel
+3. Add all environment variables in the Vercel dashboard (Settings → Environment Variables)
+4. Deploy
+
+The app builds cleanly with `npm run build` — no additional Vercel configuration needed.
+
+---
+
+## Architecture
+
+```
+src/
+  app/
+    page.tsx                 # Workspace (chat + right rail)
+    login/page.tsx           # Login gate
+    sources/page.tsx         # Knowledge base & link extraction
+    pipeline/page.tsx        # Kanban board
+    settings/page.tsx        # API key management
+    api/
+      auth/login/route.ts    # Session creation
+      auth/logout/route.ts   # Session destruction
+      chat/route.ts          # AI generation endpoint
+      sources/route.ts       # Sources CRUD
+      sources/extract/route.ts # Re-trigger extraction
+      pipeline/route.ts      # Cards list + create
+      pipeline/[id]/route.ts # Card update + delete
+      pipeline/reorder/route.ts # Batch drag-and-drop persist
+      settings/route.ts      # API key storage (masked)
+  lib/
+    session.ts               # iron-session config
+    supabase.ts              # Server-side DB client
+    extraction.ts            # Jina + Apify + Claude summarizer
+    generation.ts            # Retrieval + prompt assembly + parsing
+  components/
+    layout/Nav.tsx, AppShell.tsx
+    chat/DraftCard.tsx, QuickAddModal.tsx
+  middleware.ts              # Auth guard for all routes
+  types/database.ts          # TypeScript interfaces
+supabase/migrations/
+  001_initial_schema.sql     # All tables + triggers + seed data
+```
+
+## Tech Stack
+
+- **Framework**: Next.js 16 (App Router) + TypeScript
+- **Styling**: Tailwind CSS v4 + CSS custom properties
+- **Database**: Supabase Postgres
+- **AI**: Anthropic Claude (claude-opus-4-5 for generation, haiku for summaries)
+- **Auth**: iron-session (HMAC-signed httpOnly cookie)
+- **Scraping**: Jina Reader (free) → Apify fallback
+- **Drag-and-drop**: @dnd-kit/core + @dnd-kit/sortable
