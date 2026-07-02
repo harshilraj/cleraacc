@@ -33,10 +33,10 @@ export async function retrieveSources(query: string, maxSources = 8): Promise<So
 
   if (!sources || sources.length === 0) return [];
 
-  const instructions = sources.filter((s) => s.kind === 'instruction');
-  const rest = sources.filter((s) => s.kind !== 'instruction');
+  const instructions = (sources as Source[]).filter((s: Source) => s.kind === 'instruction');
+  const rest = (sources as Source[]).filter((s: Source) => s.kind !== 'instruction');
 
-  const scored = rest.map((s) => ({ source: s, score: scoreSource(query, s) }));
+  const scored = rest.map((s: Source) => ({ source: s, score: scoreSource(query, s) }));
   scored.sort((a, b) => b.score - a.score);
 
   const topRest = scored.slice(0, maxSources - instructions.length).map((s) => s.source);
